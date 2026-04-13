@@ -185,16 +185,28 @@
       <button class="tool-btn" id="tool-bg" data-tip="Background" onclick="togglePanel('bg')">◐</button>
       <div class="tool-divider"></div>
       <button class="tool-btn" id="tool-annotations-list" data-tip="Annotations" onclick="toggleAnnotationsPanel()">☰</button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn" id="tool-ortho" data-tip="Toggle orthographic" onclick="toggleOrtho()">⬜</button>
     </div>
 
     <div class="measure-display" id="measure-display"></div>
 
     <div class="section-panel" id="section-panel">
       <div class="panel-title">SECTION CUT</div>
-      <div class="section-row"><div class="section-label">X <span id="sx-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sx" oninput="updateSection()"></div>
-      <div class="section-row"><div class="section-label">Y <span id="sy-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sy" oninput="updateSection()"></div>
-      <div class="section-row"><div class="section-label">Z <span id="sz-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sz" oninput="updateSection()"></div>
-      <button class="section-reset" onclick="resetSection()">reset</button>
+      <div class="section-row">
+        <div class="section-label">X <span id="sx-val">off</span></div>
+        <input type="range" min="-100" max="100" value="0" id="sx" oninput="updateSection()">
+      </div>
+      <div class="section-row">
+        <div class="section-label">Y <span id="sy-val">off</span></div>
+        <input type="range" min="-100" max="100" value="0" id="sy" oninput="updateSection()">
+      </div>
+      <div class="section-row">
+        <div class="section-label">Z <span id="sz-val">off</span></div>
+        <input type="range" min="-100" max="100" value="0" id="sz" oninput="updateSection()">
+      </div>
+      <div style="font-size:9px;color:#2a2a2a;font-family:'DM Mono',monospace;margin:4px 0 8px;line-height:1.5;">center = off<br>slide left = cut from negative side<br>slide right = cut from positive side</div>
+      <button class="section-reset" onclick="resetSection()">reset all</button>
     </div>
 
     <div class="lighting-panel" id="lighting-panel">
@@ -350,6 +362,8 @@ function showGallery() {
 
 function resetToolState() {
   activeTool = 'orbit'; wireframeOn = false; autoRotate = false;
+  isOrtho = false; orthoCamera = null;
+  document.getElementById('tool-ortho')?.classList.remove('active');
   measurePoints = []; measureLines = []; measureLabels = []; areaPoints = [];
   annotations = []; annMarkers = []; pendingAnnotationPos = null;
   clipX = Infinity; clipY = Infinity; clipZ = Infinity;
@@ -360,7 +374,7 @@ function resetToolState() {
   document.getElementById('tool-orbit').classList.add('active');
   document.querySelectorAll('.annotations-panel,.section-panel,.lighting-panel,.bg-panel').forEach(p => p.classList.remove('visible'));
   document.getElementById('ann-popup').style.display = 'none';
-  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 100);
+  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 0);
   updateSectionLabels(); renderAnnotationsList();
 }
 
@@ -561,10 +575,12 @@ function getRaycastPoint(e) {
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(ndc, camera);
   const hits = raycaster.intersectObject(loadedObject, true);
-  // Filter hits that are inside the clipped (visible) region
+  const planes = window._sectionPlanes || [];
   for (const hit of hits) {
     const p = hit.point;
-    if (p.x <= clipX && p.y <= clipY && p.z <= clipZ) return hit;
+    // Point must satisfy all active clipping planes (be on the visible side)
+    const visible = planes.every(plane => plane.distanceToPoint(p) >= -0.001);
+    if (visible) return hit;
   }
   return null;
 }
@@ -723,39 +739,73 @@ function clearMeasurements() {
   document.getElementById('measure-display').style.display = 'none';
 }
 
-// ── Section cut ────────────────────────────────────────────────────────────
+// ── Section cut (bidirectional) ────────────────────────────────────────────
+// Slider value: -100 to +100, 0 = off
+// Positive value: cuts from the positive side (keeps negative half)
+// Negative value: cuts from the negative side (keeps positive half)
 function updateSection() {
   if (!loadedObject) return;
-  const sx = parseInt(document.getElementById('sx').value)/100;
-  const sy = parseInt(document.getElementById('sy').value)/100;
-  const sz = parseInt(document.getElementById('sz').value)/100;
   updateSectionLabels();
   const b = modelBounds;
-  clipX = sx >= 1 ? Infinity : b.min.x + (b.max.x-b.min.x)*((sx+1)/2);
-  clipY = sy >= 1 ? Infinity : b.min.y + (b.max.y-b.min.y)*((sy+1)/2);
-  clipZ = sz >= 1 ? Infinity : b.min.z + (b.max.z-b.min.z)*((sz+1)/2);
+  const axes = ['sx','sy','sz'];
+  const normals = [
+    [new THREE.Vector3(-1,0,0), new THREE.Vector3(1,0,0)],  // X: pos cuts right, neg cuts left
+    [new THREE.Vector3(0,-1,0), new THREE.Vector3(0,1,0)],  // Y: pos cuts top, neg cuts bottom
+    [new THREE.Vector3(0,0,-1), new THREE.Vector3(0,0,1)]   // Z: pos cuts front, neg cuts back
+  ];
+  const mins = [b.min.x, b.min.y, b.min.z];
+  const maxs = [b.max.x, b.max.y, b.max.z];
 
   const planes = [];
-  if (sx < 1) planes.push(new THREE.Plane(new THREE.Vector3(-1,0,0), clipX));
-  if (sy < 1) planes.push(new THREE.Plane(new THREE.Vector3(0,-1,0), clipY));
-  if (sz < 1) planes.push(new THREE.Plane(new THREE.Vector3(0,0,-1), clipZ));
+  clipX = Infinity; clipY = Infinity; clipZ = Infinity;
+
+  axes.forEach((id, i) => {
+    const v = parseInt(document.getElementById(id).value);
+    if (v === 0) return; // center = off
+    const t = v / 100; // -1 to +1
+    const mid = (mins[i] + maxs[i]) / 2;
+    const half = (maxs[i] - mins[i]) / 2;
+    const pos = mid + t * half;
+
+    if (v > 0) {
+      // Positive: clip keeps the negative half (plane faces negative direction)
+      planes.push(new THREE.Plane(normals[i][0], pos));
+      if (i === 0) clipX = pos;
+      if (i === 1) clipY = pos;
+      if (i === 2) clipZ = pos;
+    } else {
+      // Negative: clip keeps the positive half (plane faces positive direction)
+      planes.push(new THREE.Plane(normals[i][1], -pos));
+      if (i === 0) clipX = -Infinity; // negative side clip: raycasts must be > pos
+      if (i === 1) clipY = -Infinity;
+      if (i === 2) clipZ = -Infinity;
+    }
+  });
+
+  // Store clip planes for raycasting awareness
+  window._sectionPlanes = planes;
 
   loadedObject.traverse(c => {
     if (!c.isMesh) return;
-    (Array.isArray(c.material)?c.material:[c.material]).forEach(m => { m.clippingPlanes = planes; m.needsUpdate = true; });
+    (Array.isArray(c.material)?c.material:[c.material]).forEach(m => {
+      m.clippingPlanes = planes; m.needsUpdate = true;
+    });
   });
 }
 
 function updateSectionLabels() {
   ['sx','sy','sz'].forEach(id => {
     const v = parseInt(document.getElementById(id).value);
-    document.getElementById(id+'-val').textContent = v >= 100 ? 'off' : v+'%';
+    if (v === 0) document.getElementById(id+'-val').textContent = 'off';
+    else if (v > 0) document.getElementById(id+'-val').textContent = '+'+v+'%';
+    else document.getElementById(id+'-val').textContent = v+'%';
   });
 }
 
 function resetSection() {
-  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 100);
+  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 0);
   clipX = Infinity; clipY = Infinity; clipZ = Infinity;
+  window._sectionPlanes = [];
   if (loadedObject) loadedObject.traverse(c => {
     if (!c.isMesh) return;
     (Array.isArray(c.material)?c.material:[c.material]).forEach(m => { m.clippingPlanes = []; m.needsUpdate = true; });
@@ -810,6 +860,55 @@ function toggleWireframe() {
   loadedObject.traverse(c=>{if(!c.isMesh)return;(Array.isArray(c.material)?c.material:[c.material]).forEach(m=>m.wireframe=wireframeOn);});
 }
 
+let orthoCamera = null;
+let isOrtho = false;
+
+function toggleOrtho() {
+  if (!loadedObject) return;
+  isOrtho = !isOrtho;
+  document.getElementById('tool-ortho').classList.toggle('active', isOrtho);
+  document.getElementById('tool-ortho').setAttribute('data-tip', isOrtho ? 'Switch to perspective' : 'Toggle orthographic');
+
+  const container = document.getElementById('canvas-container');
+  const w = container.clientWidth, h = container.clientHeight;
+  const aspect = w / h;
+
+  if (isOrtho) {
+    // Create ortho camera sized to fit current view
+    const frustumSize = sph.radius;
+    orthoCamera = new THREE.OrthographicCamera(
+      -frustumSize*aspect/2, frustumSize*aspect/2,
+       frustumSize/2, -frustumSize/2,
+      -100000, 100000
+    );
+    orthoCamera.position.copy(camera.position);
+    orthoCamera.quaternion.copy(camera.quaternion);
+    orthoCamera.lookAt(tgt);
+    camera = orthoCamera;
+  } else {
+    const perspCamera = new THREE.PerspectiveCamera(45, aspect, 0.001, 100000);
+    perspCamera.position.copy(camera.position);
+    perspCamera.lookAt(tgt);
+    camera = perspCamera;
+    orthoCamera = null;
+  }
+}
+
+// Keep ortho camera synced when orbiting
+const _origUpdateCam = updateCam;
+function updateCam() {
+  _origUpdateCam();
+  if (isOrtho && orthoCamera) {
+    const container = document.getElementById('canvas-container');
+    const aspect = container.clientWidth / container.clientHeight;
+    const frustumSize = sph.radius;
+    orthoCamera.left   = -frustumSize*aspect/2;
+    orthoCamera.right  =  frustumSize*aspect/2;
+    orthoCamera.top    =  frustumSize/2;
+    orthoCamera.bottom = -frustumSize/2;
+    orthoCamera.updateProjectionMatrix();
+  }
+}
 function toggleAutoRotate() { autoRotate=!autoRotate; document.getElementById('rotate-btn').classList.toggle('active',autoRotate); }
 function toggleFullscreen() { if(!document.fullscreenElement) document.getElementById('viewer-page').requestFullscreen?.(); else document.exitFullscreen?.(); }
 
