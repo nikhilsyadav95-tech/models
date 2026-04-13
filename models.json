@@ -12,7 +12,14 @@
     {
       "id": "mahulimath",
       "name": "Shri Harinarayan Swami Samarth Math",
-      "description": "Survey captured April 2026",
+      "description": "Survey captured January 2026",
+      "url": "https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/Math%20HQ.glb",
+      "thumbnail": "https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/mahulimath.png"
+    },
+    {
+      "id": "nanibaiwada",
+      "name": "Nanibai Wada - Chikhali",
+      "description": "Survey captured January 2026",
       "url": "https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/Math%20HQ.glb",
       "thumbnail": "https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/mahulimath.png"
     }
