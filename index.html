@@ -391,13 +391,27 @@ function initThree() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  // Use LinearEncoding + LinearToneMapping for maximum mobile compatibility
-  // ACESFilmic + sRGB causes black rendering on Android Chrome (Pixel 7 etc)
-  renderer.outputEncoding = THREE.LinearEncoding;
-  renderer.toneMapping = THREE.LinearToneMapping;
-  renderer.toneMappingExposure = 1.0;
   renderer.localClippingEnabled = true;
   renderer.physicallyCorrectLights = true;
+
+  // Detect Pixel/Tensor GPU which has issues with tone mapping and encoding
+  const gl = renderer.getContext();
+  const dbgInfo = gl.getExtension('WEBGL_debug_renderer_info');
+  const gpuRenderer = dbgInfo ? gl.getParameter(dbgInfo.UNMASKED_RENDERER_WEBGL) : '';
+  const isPixel = /Tensor|Mali-G710|Pixel/.test(gpuRenderer) || /Pixel/.test(navigator.userAgent);
+
+  if (isPixel) {
+    // Pixel 7 / Tensor G2 safe settings
+    renderer.outputEncoding = THREE.LinearEncoding;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    // Boost lights to compensate for no tone mapping
+    setTimeout(() => { if (ambLight) { ambLight.intensity = 1.2; dirLight1.intensity = 1.8; dirLight2.intensity = 0.6; } }, 100);
+  } else {
+    renderer.outputEncoding = THREE.LinearEncoding;
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.0;
+  }
 
   ambLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambLight);
   dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2); dirLight1.position.set(5,10,7); scene.add(dirLight1);
