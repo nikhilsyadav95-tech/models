@@ -205,7 +205,7 @@
         <div class="section-label">Z <span id="sz-val">off</span></div>
         <input type="range" min="-100" max="100" value="0" id="sz" oninput="updateSection()">
       </div>
-      <div style="font-size:9px;color:#2a2a2a;font-family:'DM Mono',monospace;margin:4px 0 8px;line-height:1.5;">center = off<br>slide left = cut from negative side<br>slide right = cut from positive side</div>
+      <div style="font-size:9px;color:#2a2a2a;font-family:'DM Mono',monospace;margin:4px 0 8px;line-height:1.5;">center = off<br>← cuts from left/bottom/back edge<br>→ cuts from right/top/front edge</div>
       <button class="section-reset" onclick="resetSection()">reset all</button>
     </div>
 
@@ -388,14 +388,13 @@ function initThree() {
   scene.background = new THREE.Color(bgColors.black);
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.001, 100000);
 
-  // Use WebGL1 fallback for broader mobile support (Pixel 7 / older Android)
-  let ctx;
-  try { ctx = canvas.getContext('webgl2') || canvas.getContext('webgl'); } catch(e) {}
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, context: ctx, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputEncoding = THREE.sRGBEncoding;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Use LinearEncoding + LinearToneMapping for maximum mobile compatibility
+  // ACESFilmic + sRGB causes black rendering on Android Chrome (Pixel 7 etc)
+  renderer.outputEncoding = THREE.LinearEncoding;
+  renderer.toneMapping = THREE.LinearToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.localClippingEnabled = true;
   renderer.physicallyCorrectLights = true;
@@ -747,52 +746,43 @@ function clearMeasurements() {
   document.getElementById('measure-display').style.display = 'none';
 }
 
-// ── Section cut (bidirectional) ────────────────────────────────────────────
-// Slider value: -100 to +100, 0 = off
-// Positive value: cuts from the positive side (keeps negative half)
-// Negative value: cuts from the negative side (keeps positive half)
+// ── Section cut (single continuous slider) ────────────────────────────────
+// Slider: -100 to +100
+// 0 = no cut
+// Negative (-1 to -100): cuts from negative edge inward (left/bottom/back)
+// Positive (+1 to +100): cuts from positive edge inward (right/top/front)
 function updateSection() {
   if (!loadedObject) return;
   updateSectionLabels();
   const b = modelBounds;
-  const axes = ['sx','sy','sz'];
-  const normals = [
-    [new THREE.Vector3(-1,0,0), new THREE.Vector3(1,0,0)],  // X: pos cuts right, neg cuts left
-    [new THREE.Vector3(0,-1,0), new THREE.Vector3(0,1,0)],  // Y: pos cuts top, neg cuts bottom
-    [new THREE.Vector3(0,0,-1), new THREE.Vector3(0,0,1)]   // Z: pos cuts front, neg cuts back
-  ];
-  const mins = [b.min.x, b.min.y, b.min.z];
-  const maxs = [b.max.x, b.max.y, b.max.z];
-
   const planes = [];
-  clipX = Infinity; clipY = Infinity; clipZ = Infinity;
+  window._sectionPlanes = [];
 
-  axes.forEach((id, i) => {
+  [['sx',0],['sy',1],['sz',2]].forEach(([id, i]) => {
     const v = parseInt(document.getElementById(id).value);
-    if (v === 0) return; // center = off
-    const t = v / 100; // -1 to +1
-    const mid = (mins[i] + maxs[i]) / 2;
-    const half = (maxs[i] - mins[i]) / 2;
-    const pos = mid + t * half;
+    if (v === 0) return;
 
-    if (v > 0) {
-      // Positive: clip keeps the negative half (plane faces negative direction)
-      planes.push(new THREE.Plane(normals[i][0], pos));
-      if (i === 0) clipX = pos;
-      if (i === 1) clipY = pos;
-      if (i === 2) clipZ = pos;
+    const minV = [b.min.x, b.min.y, b.min.z][i];
+    const maxV = [b.max.x, b.max.y, b.max.z][i];
+    const size = maxV - minV;
+    const frac = Math.abs(v) / 100; // 0=edge, 1=full
+
+    const nx = i===0?1:0, ny = i===1?1:0, nz = i===2?1:0;
+
+    if (v < 0) {
+      // Slide left: cut from negative edge inward, keeping positive side
+      // Plane normal points positive, constant moves from min inward
+      const cutPos = minV + size * frac;
+      planes.push(new THREE.Plane(new THREE.Vector3(nx, ny, nz), -cutPos));
     } else {
-      // Negative: clip keeps the positive half (plane faces positive direction)
-      planes.push(new THREE.Plane(normals[i][1], -pos));
-      if (i === 0) clipX = -Infinity; // negative side clip: raycasts must be > pos
-      if (i === 1) clipY = -Infinity;
-      if (i === 2) clipZ = -Infinity;
+      // Slide right: cut from positive edge inward, keeping negative side
+      // Plane normal points negative, constant moves from max inward
+      const cutPos = maxV - size * frac;
+      planes.push(new THREE.Plane(new THREE.Vector3(-nx, -ny, -nz), cutPos));
     }
   });
 
-  // Store clip planes for raycasting awareness
   window._sectionPlanes = planes;
-
   loadedObject.traverse(c => {
     if (!c.isMesh) return;
     (Array.isArray(c.material)?c.material:[c.material]).forEach(m => {
@@ -972,7 +962,7 @@ function buildScene(json,bin) {
     const bv=bufViews[img.bufferView];
     const data=new Uint8Array(bin.buffer,bin.byteOffset+(bv.byteOffset||0),bv.byteLength);
     const tex=new THREE.TextureLoader().load(URL.createObjectURL(new Blob([data],{type:img.mimeType||'image/jpeg'})));
-    tex.encoding=THREE.sRGBEncoding; tex.flipY=false; return texCache[i]=tex;
+    tex.encoding=THREE.LinearEncoding; tex.flipY=false; return texCache[i]=tex;
   }
   const matCache=mats.map(mat=>{
     const m=new THREE.MeshStandardMaterial({side:mat.doubleSided?THREE.DoubleSide:THREE.FrontSide});
