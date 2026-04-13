@@ -117,7 +117,7 @@
   .ann-popup-btn.confirm { border-color: #4a7a9b; color: #7ab8d8; }
 
   .section-panel, .lighting-panel, .bg-panel { position: absolute; left: 58px; top: 50%; transform: translateY(-50%); background: rgba(10,10,10,0.96); border: 0.5px solid #1e1e1e; border-radius: 4px; padding: 12px; display: none; z-index: 20; backdrop-filter: blur(8px); }
-  .section-panel { width: 180px; } .lighting-panel { width: 150px; } .bg-panel { width: 140px; }
+  .section-panel { width: 180px; } .lighting-panel { width: 190px; } .bg-panel { width: 140px; }
   .section-panel.visible, .lighting-panel.visible, .bg-panel.visible { display: block; }
   .panel-title { font-size: 10px; color: #333; font-family: 'DM Mono', monospace; letter-spacing: 1px; margin-bottom: 10px; }
   .section-row { margin-bottom: 10px; }
@@ -211,6 +211,15 @@
 
     <div class="lighting-panel" id="lighting-panel">
       <div class="panel-title">LIGHTING</div>
+      <div class="section-row">
+        <div class="section-label">Exposure <span id="exposure-val">0.8</span></div>
+        <input type="range" min="1" max="30" value="8" id="exposure-slider" oninput="updateExposure()">
+      </div>
+      <div class="section-row">
+        <div class="section-label">Ambient <span id="ambient-val">1.8</span></div>
+        <input type="range" min="0" max="50" value="18" id="ambient-slider" oninput="updateAmbient()">
+      </div>
+      <div style="height:0.5px;background:#1e1e1e;margin:6px 0;"></div>
       <div class="light-option active" onclick="setLighting('studio')">studio</div>
       <div class="light-option" onclick="setLighting('overhead')">overhead</div>
       <div class="light-option" onclick="setLighting('dramatic')">dramatic</div>
@@ -281,11 +290,11 @@ let activeClipPlanes = [];
 let clipX = Infinity, clipY = Infinity, clipZ = Infinity;
 
 const lightingPresets = {
-  studio:   { ambient: 3.0, d1i: 1.5, d1p:[5,10,7],   d2i:1.0,  d2p:[-5,5,-5]  },
-  overhead: { ambient: 2.0, d1i: 2.5, d1p:[0,10,0],   d2i:0.5,  d2p:[0,-5,0]   },
-  dramatic: { ambient: 0.8, d1i: 3.0, d1p:[8,5,2],    d2i:0.3,  d2p:[-8,-5,-2] },
-  flat:     { ambient: 5.0, d1i: 0.0, d1p:[0,1,0],    d2i:0.0,  d2p:[0,1,0]    },
-  night:    { ambient: 0.3, d1i: 1.2, d1p:[-3,2,5],   d2i:0.5,  d2p:[3,-2,-5]  }
+  studio:   { ambient: 1.8, d1i: 1.0, d1p:[5,10,7],   d2i:0.6,  d2p:[-5,5,-5]  },
+  overhead: { ambient: 1.2, d1i: 2.0, d1p:[0,10,0],   d2i:0.3,  d2p:[0,-5,0]   },
+  dramatic: { ambient: 0.4, d1i: 2.5, d1p:[8,5,2],    d2i:0.2,  d2p:[-8,-5,-2] },
+  flat:     { ambient: 3.5, d1i: 0.0, d1p:[0,1,0],    d2i:0.0,  d2p:[0,1,0]    },
+  night:    { ambient: 0.2, d1i: 0.8, d1p:[-3,2,5],   d2i:0.3,  d2p:[3,-2,-5]  }
 };
 const bgColors = { black:0x080808, dark:0x0d0d1a, gray:0x3a3a3a, white:0xf0f0f0, sky:0x87CEEB };
 
@@ -408,20 +417,18 @@ function initThree() {
     // ACESFilmic gives the most vibrant, natural colours closest to Metashape
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 0.8;
   }
 
-  // Bright even lighting from all directions — mimics Metashape's neutral presentation
-  // High ambient so no face is too dark, directional for subtle depth/shadow
-  ambLight = new THREE.AmbientLight(0xffffff, 3.0); scene.add(ambLight);
-  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.5); dirLight1.position.set(5,10,7); scene.add(dirLight1);
-  dirLight2 = new THREE.DirectionalLight(0xffffff, 1.0); dirLight2.position.set(-5,5,-5); scene.add(dirLight2);
-  dirLight3 = new THREE.DirectionalLight(0xffffff, 0.8); dirLight3.position.set(0,5,10); scene.add(dirLight3);
-  dirLight4 = new THREE.DirectionalLight(0xffffff, 0.5); dirLight4.position.set(0,-5,-10); scene.add(dirLight4);
+  ambLight = new THREE.AmbientLight(0xffffff, 1.8); scene.add(ambLight);
+  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.0); dirLight1.position.set(5,10,7); scene.add(dirLight1);
+  dirLight2 = new THREE.DirectionalLight(0xffffff, 0.6); dirLight2.position.set(-5,5,-5); scene.add(dirLight2);
+  dirLight3 = new THREE.DirectionalLight(0xffffff, 0.4); dirLight3.position.set(0,5,10); scene.add(dirLight3);
+  dirLight4 = new THREE.DirectionalLight(0xffffff, 0.3); dirLight4.position.set(0,-5,-10); scene.add(dirLight4);
 
   if (isPixel) {
-    ambLight.intensity = 4.0;
-    dirLight1.intensity = 2.0; dirLight2.intensity = 1.5;
+    ambLight.intensity = 2.5;
+    dirLight1.intensity = 1.2; dirLight2.intensity = 0.8;
   }
 
   setupControls(canvas);
@@ -832,12 +839,27 @@ function resetSection() {
   updateSectionLabels();
 }
 
+function updateExposure() {
+  const v = parseInt(document.getElementById('exposure-slider').value) / 10;
+  document.getElementById('exposure-val').textContent = v.toFixed(1);
+  if (renderer) { renderer.toneMappingExposure = v; }
+}
+
+function updateAmbient() {
+  const v = parseInt(document.getElementById('ambient-slider').value) / 10;
+  document.getElementById('ambient-val').textContent = v.toFixed(1);
+  if (ambLight) ambLight.intensity = v;
+}
+
 // ── Lighting ───────────────────────────────────────────────────────────────
 function setLighting(preset) {
   const p = lightingPresets[preset]; if (!p||!ambLight) return;
   ambLight.intensity = p.ambient;
   dirLight1.intensity = p.d1i; dirLight1.position.set(...p.d1p);
   dirLight2.intensity = p.d2i; dirLight2.position.set(...p.d2p);
+  // Sync sliders to preset values
+  document.getElementById('ambient-slider').value = Math.round(p.ambient * 10);
+  document.getElementById('ambient-val').textContent = p.ambient.toFixed(1);
   document.querySelectorAll('.light-option').forEach(el => el.classList.toggle('active', el.textContent.trim()===preset));
 }
 
