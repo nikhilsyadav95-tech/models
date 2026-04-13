@@ -425,6 +425,14 @@ function updateCam() {
   const z = sph.radius * Math.sin(sph.phi) * Math.cos(sph.theta);
   camera.position.set(tgt.x+x, tgt.y+y, tgt.z+z);
   camera.lookAt(tgt);
+  if (isOrtho && orthoCamera) {
+    const container = document.getElementById('canvas-container');
+    const aspect = container.clientWidth / container.clientHeight;
+    const f = sph.radius;
+    orthoCamera.left = -f*aspect/2; orthoCamera.right = f*aspect/2;
+    orthoCamera.top = f/2; orthoCamera.bottom = -f/2;
+    orthoCamera.updateProjectionMatrix();
+  }
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────
@@ -894,21 +902,7 @@ function toggleOrtho() {
   }
 }
 
-// Keep ortho camera synced when orbiting
-const _origUpdateCam = updateCam;
-function updateCam() {
-  _origUpdateCam();
-  if (isOrtho && orthoCamera) {
-    const container = document.getElementById('canvas-container');
-    const aspect = container.clientWidth / container.clientHeight;
-    const frustumSize = sph.radius;
-    orthoCamera.left   = -frustumSize*aspect/2;
-    orthoCamera.right  =  frustumSize*aspect/2;
-    orthoCamera.top    =  frustumSize/2;
-    orthoCamera.bottom = -frustumSize/2;
-    orthoCamera.updateProjectionMatrix();
-  }
-}
+
 function toggleAutoRotate() { autoRotate=!autoRotate; document.getElementById('rotate-btn').classList.toggle('active',autoRotate); }
 function toggleFullscreen() { if(!document.fullscreenElement) document.getElementById('viewer-page').requestFullscreen?.(); else document.exitFullscreen?.(); }
 
