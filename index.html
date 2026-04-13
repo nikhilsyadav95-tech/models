@@ -273,7 +273,7 @@ let defaultRadius = 5;
 let modelBounds = { min: new THREE.Vector3(), max: new THREE.Vector3(), size: new THREE.Vector3() };
 let measurePoints = [], measureLines = [], measureLabels = [], areaPoints = [];
 let annotations = [], pendingAnnotationPos = null, annMarkers = [];
-let ambLight, dirLight1, dirLight2;
+let ambLight, dirLight1, dirLight2, dirLight3, dirLight4;
 let sectionActive = [false, false, false];
 let activeClipPlanes = [];
 
@@ -281,11 +281,11 @@ let activeClipPlanes = [];
 let clipX = Infinity, clipY = Infinity, clipZ = Infinity;
 
 const lightingPresets = {
-  studio:   { ambient: 0.6, d1i: 1.2, d1p:[5,10,7],   d2i:0.3,  d2p:[-5,-3,-5] },
-  overhead: { ambient: 0.3, d1i: 2.0, d1p:[0,10,0],   d2i:0.1,  d2p:[0,-5,0]   },
-  dramatic: { ambient: 0.1, d1i: 2.5, d1p:[8,5,2],    d2i:0.05, d2p:[-8,-5,-2] },
-  flat:     { ambient: 1.5, d1i: 0.0, d1p:[0,1,0],    d2i:0.0,  d2p:[0,1,0]    },
-  night:    { ambient: 0.05,d1i: 0.8, d1p:[-3,2,5],   d2i:0.2,  d2p:[3,-2,-5]  }
+  studio:   { ambient: 3.0, d1i: 1.5, d1p:[5,10,7],   d2i:1.0,  d2p:[-5,5,-5]  },
+  overhead: { ambient: 2.0, d1i: 2.5, d1p:[0,10,0],   d2i:0.5,  d2p:[0,-5,0]   },
+  dramatic: { ambient: 0.8, d1i: 3.0, d1p:[8,5,2],    d2i:0.3,  d2p:[-8,-5,-2] },
+  flat:     { ambient: 5.0, d1i: 0.0, d1p:[0,1,0],    d2i:0.0,  d2p:[0,1,0]    },
+  night:    { ambient: 0.3, d1i: 1.2, d1p:[-3,2,5],   d2i:0.5,  d2p:[3,-2,-5]  }
 };
 const bgColors = { black:0x080808, dark:0x0d0d1a, gray:0x3a3a3a, white:0xf0f0f0, sky:0x87CEEB };
 
@@ -392,30 +392,37 @@ function initThree() {
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.localClippingEnabled = true;
-  renderer.physicallyCorrectLights = true;
+  renderer.physicallyCorrectLights = false;
 
-  // Detect Pixel/Tensor GPU which has issues with tone mapping and encoding
+  // Detect Pixel/Tensor GPU which has issues with sRGB + tone mapping
   const gl = renderer.getContext();
   const dbgInfo = gl.getExtension('WEBGL_debug_renderer_info');
   const gpuRenderer = dbgInfo ? gl.getParameter(dbgInfo.UNMASKED_RENDERER_WEBGL) : '';
-  const isPixel = /Tensor|Mali-G710|Pixel/.test(gpuRenderer) || /Pixel/.test(navigator.userAgent);
+  const isPixel = /Tensor|Mali-G710/.test(gpuRenderer) || /Pixel 7/.test(navigator.userAgent);
 
   if (isPixel) {
-    // Pixel 7 / Tensor G2 safe settings
     renderer.outputEncoding = THREE.LinearEncoding;
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.toneMappingExposure = 1.0;
-    // Boost lights to compensate for no tone mapping
-    setTimeout(() => { if (ambLight) { ambLight.intensity = 1.2; dirLight1.intensity = 1.8; dirLight2.intensity = 0.6; } }, 100);
   } else {
-    renderer.outputEncoding = THREE.LinearEncoding;
-    renderer.toneMapping = THREE.LinearToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    // ACESFilmic gives the most vibrant, natural colours closest to Metashape
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
   }
 
-  ambLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambLight);
-  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2); dirLight1.position.set(5,10,7); scene.add(dirLight1);
-  dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3); dirLight2.position.set(-5,-3,-5); scene.add(dirLight2);
+  // Bright even lighting from all directions — mimics Metashape's neutral presentation
+  // High ambient so no face is too dark, directional for subtle depth/shadow
+  ambLight = new THREE.AmbientLight(0xffffff, 3.0); scene.add(ambLight);
+  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.5); dirLight1.position.set(5,10,7); scene.add(dirLight1);
+  dirLight2 = new THREE.DirectionalLight(0xffffff, 1.0); dirLight2.position.set(-5,5,-5); scene.add(dirLight2);
+  dirLight3 = new THREE.DirectionalLight(0xffffff, 0.8); dirLight3.position.set(0,5,10); scene.add(dirLight3);
+  dirLight4 = new THREE.DirectionalLight(0xffffff, 0.5); dirLight4.position.set(0,-5,-10); scene.add(dirLight4);
+
+  if (isPixel) {
+    ambLight.intensity = 4.0;
+    dirLight1.intensity = 2.0; dirLight2.intensity = 1.5;
+  }
 
   setupControls(canvas);
   window.onresize = () => {
@@ -872,7 +879,7 @@ function toggleWireframe() {
   loadedObject.traverse(c=>{if(!c.isMesh)return;(Array.isArray(c.material)?c.material:[c.material]).forEach(m=>m.wireframe=wireframeOn);});
 }
 
-let orthoCamera = null;
+let isPixelDevice = false;
 let isOrtho = false;
 
 function toggleOrtho() {
@@ -976,13 +983,14 @@ function buildScene(json,bin) {
     const bv=bufViews[img.bufferView];
     const data=new Uint8Array(bin.buffer,bin.byteOffset+(bv.byteOffset||0),bv.byteLength);
     const tex=new THREE.TextureLoader().load(URL.createObjectURL(new Blob([data],{type:img.mimeType||'image/jpeg'})));
-    tex.encoding=THREE.LinearEncoding; tex.flipY=false; return texCache[i]=tex;
+    tex.encoding=THREE.sRGBEncoding; tex.flipY=false; return texCache[i]=tex;
   }
   const matCache=mats.map(mat=>{
     const m=new THREE.MeshStandardMaterial({side:mat.doubleSided?THREE.DoubleSide:THREE.FrontSide});
     const pbr=mat.pbrMetallicRoughness||{},bc=pbr.baseColorFactor||[1,1,1,1];
     m.color.setRGB(bc[0],bc[1],bc[2]); m.opacity=bc[3]; if(bc[3]<1) m.transparent=true;
-    m.metalness=pbr.metallicFactor??1; m.roughness=pbr.roughnessFactor??1;
+    m.metalness = pbr.metallicFactor !== undefined ? pbr.metallicFactor : 0;
+    m.roughness = pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1;
     if(pbr.baseColorTexture) m.map=getTex(pbr.baseColorTexture.index);
     if(pbr.metallicRoughnessTexture) m.metalnessMap=m.roughnessMap=getTex(pbr.metallicRoughnessTexture.index);
     if(mat.normalTexture) m.normalMap=getTex(mat.normalTexture.index);
