@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>3D Models</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; background: #0c0c0c; color: #d0d0d0; min-height: 100vh; }
+
+  /* ── Gallery ── */
+  #gallery-page { display: block; }
+  #viewer-page { display: none; }
+
+  .site-header { padding: 1.2rem 1.5rem; border-bottom: 0.5px solid #1e1e1e; display: flex; align-items: center; gap: 14px; justify-content: space-between; }
+  .logo-area { display: flex; align-items: center; gap: 12px; }
+  .site-logo { height: 36px; width: auto; object-fit: contain; display: block; }
+  .site-logo-text { font-size: 17px; font-weight: 500; color: #fff; letter-spacing: -0.3px; }
+  .site-subtitle { font-size: 12px; color: #444; margin-top: 2px; font-family: 'DM Mono', monospace; }
+  .model-count { font-size: 11px; color: #333; font-family: 'DM Mono', monospace; flex-shrink: 0; }
+
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1px; background: #161616; margin-top: 1px; }
+  .model-card { background: #0f0f0f; cursor: pointer; transition: background 0.15s; position: relative; }
+  .model-card:hover, .model-card:active { background: #151515; }
+  .model-card:hover .card-overlay, .model-card:active .card-overlay { opacity: 1; }
+
+  .card-thumb { width: 100%; aspect-ratio: 16/10; background: #0a0a0a; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .thumb-icon { font-size: 36px; color: #1e1e1e; }
+  .thumb-tag { font-size: 10px; color: #2a2a2a; letter-spacing: 2px; font-family: 'DM Mono', monospace; }
+
+  .card-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
+  .overlay-btn { border: 0.5px solid rgba(255,255,255,0.2); color: #fff; padding: 8px 24px; border-radius: 4px; font-size: 12px; letter-spacing: 0.5px; font-family: 'DM Mono', monospace; }
+
+  .card-info { padding: 14px 16px; border-top: 0.5px solid #161616; }
+  .card-name { font-size: 13px; font-weight: 500; color: #d0d0d0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-desc { font-size: 11px; color: #333; margin-top: 4px; font-family: 'DM Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .empty-state { padding: 5rem 2rem; text-align: center; }
+  .empty-title { font-size: 14px; color: #333; }
+
+  /* ── Viewer ── */
+  #viewer-page { flex-direction: column; height: 100vh; height: 100dvh; }
+
+  .viewer-header { position: absolute; top: 0; left: 0; right: 0; padding: 10px 1rem; display: flex; align-items: center; gap: 10px; z-index: 20; background: linear-gradient(to bottom, rgba(10,10,10,0.95) 0%, transparent 100%); pointer-events: none; }
+  .viewer-header > * { pointer-events: all; }
+  .back-btn { background: rgba(12,12,12,0.85); border: 0.5px solid #252525; color: #888; padding: 8px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; font-family: 'DM Mono', monospace; backdrop-filter: blur(8px); min-height: 36px; }
+  .back-btn:hover { border-color: #3a3a3a; color: #fff; }
+  .viewer-logo { height: 24px; width: auto; object-fit: contain; }
+  .viewer-name { font-size: 13px; font-weight: 500; color: #d0d0d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .viewer-desc { font-size: 10px; color: #333; font-family: 'DM Mono', monospace; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .share-btn { background: rgba(12,12,12,0.85); border: 0.5px solid #252525; color: #666; padding: 8px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.15s; font-family: 'DM Mono', monospace; backdrop-filter: blur(8px); min-height: 36px; }
+  .share-btn:hover { border-color: #3a3a3a; color: #fff; }
+  .share-btn.copied { border-color: #1a3a1a; color: #4a8a4a; }
+  .fullscreen-btn { background: rgba(12,12,12,0.85); border: 0.5px solid #252525; color: #666; width: 36px; height: 36px; border-radius: 4px; font-size: 14px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
+  .fullscreen-btn:hover { border-color: #3a3a3a; color: #fff; }
+
+  #canvas-container { flex: 1; position: relative; background: #080808; overflow: hidden; }
+  #viewer-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ── Toolbar ── */
+  .toolbar { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 4px; z-index: 15; }
+  .tool-btn { background: rgba(12,12,12,0.9); border: 0.5px solid #222; color: #555; width: 40px; height: 40px; border-radius: 4px; font-size: 16px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); position: relative; }
+  .tool-btn:hover { border-color: #3a3a3a; color: #ccc; }
+  .tool-btn.active { border-color: #4a7a9b; color: #7ab8d8; background: rgba(74,122,155,0.15); }
+  .tool-btn[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 48px; background: rgba(12,12,12,0.95); border: 0.5px solid #2a2a2a; color: #aaa; font-size: 11px; padding: 5px 10px; border-radius: 4px; white-space: nowrap; font-family: 'DM Mono', monospace; pointer-events: none; z-index: 99; }
+  .tool-divider { height: 0.5px; background: #1e1e1e; margin: 2px 0; }
+
+  /* ── Pivot flash ── */
+  .pivot-flash { position: absolute; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #7ab8d8; background: rgba(122,184,216,0.25); transform: translate(-50%,-50%); pointer-events: none; z-index: 30; display: none; animation: pivotFade 0.6s ease-out forwards; }
+  @keyframes pivotFade { 0%{opacity:1;transform:translate(-50%,-50%) scale(1);} 100%{opacity:0;transform:translate(-50%,-50%) scale(2.5);} }
+
+  /* ── Bottom controls ── */
+  .bottom-controls { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 15; flex-wrap: wrap; justify-content: center; padding: 0 60px; }
+  .ctrl-btn { background: rgba(12,12,12,0.9); border: 0.5px solid #222; color: #555; padding: 8px 14px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.15s; white-space: nowrap; font-family: 'DM Mono', monospace; backdrop-filter: blur(8px); min-height: 36px; }
+  .ctrl-btn:hover { border-color: #3a3a3a; color: #ccc; }
+  .ctrl-btn.active { border-color: #4a7a9b; color: #7ab8d8; }
+
+  .hints { position: absolute; bottom: 1rem; right: 0.75rem; font-size: 10px; color: #1e1e1e; line-height: 2; text-align: right; pointer-events: none; font-family: 'DM Mono', monospace; }
+  @media (max-width: 480px) { .hints { display: none; } .bottom-controls { padding: 0 8px; gap: 4px; } .ctrl-btn { font-size: 10px; padding: 7px 10px; } }
+
+  .loading-overlay { position: absolute; inset: 0; background: #080808; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 30; }
+  .spinner { width: 24px; height: 24px; border: 1px solid #1a1a1a; border-top-color: #444; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 12px; color: #333; font-family: 'DM Mono', monospace; }
+  .loading-bar-wrap { width: 140px; height: 1px; background: #1a1a1a; }
+  .loading-bar { height: 100%; background: #3a3a3a; width: 0%; transition: width 0.2s; }
+  .error-overlay { position: absolute; inset: 0; background: #080808; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .error-text { font-size: 13px; color: #553333; font-family: 'DM Mono', monospace; }
+  .error-sub { font-size: 11px; color: #2a2a2a; font-family: 'DM Mono', monospace; }
+
+  .measure-display { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); background: rgba(12,12,12,0.92); border: 0.5px solid #2a2a2a; color: #7ab8d8; padding: 6px 16px; border-radius: 4px; font-size: 12px; font-family: 'DM Mono', monospace; display: none; backdrop-filter: blur(8px); z-index: 20; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
+
+  .annotations-panel { position: absolute; right: 0.75rem; top: 56px; width: 210px; background: rgba(10,10,10,0.96); border: 0.5px solid #1e1e1e; border-radius: 4px; display: none; z-index: 20; backdrop-filter: blur(8px); max-height: calc(100dvh - 120px); overflow-y: auto; }
+  .annotations-panel.visible { display: block; }
+  .ann-header { padding: 10px 12px; border-bottom: 0.5px solid #1a1a1a; font-size: 11px; color: #444; font-family: 'DM Mono', monospace; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+  .ann-close { background: none; border: none; color: #333; cursor: pointer; font-size: 14px; }
+  .ann-close:hover { color: #888; }
+  .ann-list { padding: 8px; }
+  .ann-item { padding: 8px; border-radius: 3px; margin-bottom: 4px; background: #0f0f0f; border: 0.5px solid #1a1a1a; cursor: pointer; transition: border-color 0.15s; }
+  .ann-item:hover { border-color: #2a2a2a; }
+  .ann-num { font-size: 10px; color: #4a7a9b; font-family: 'DM Mono', monospace; margin-bottom: 3px; }
+  .ann-text { font-size: 12px; color: #888; word-break: break-word; }
+  .ann-delete { float: right; background: none; border: none; color: #2a2a2a; cursor: pointer; font-size: 12px; margin-left: 8px; }
+  .ann-delete:hover { color: #664444; }
+  .ann-empty { padding: 16px; text-align: center; font-size: 11px; color: #2a2a2a; font-family: 'DM Mono', monospace; }
+
+  .ann-popup { position: absolute; background: rgba(12,12,12,0.98); border: 0.5px solid #2a2a2a; border-radius: 4px; padding: 10px; z-index: 25; display: none; backdrop-filter: blur(12px); min-width: 200px; }
+  .ann-popup input { width: 100%; background: #0a0a0a; border: 0.5px solid #2a2a2a; color: #d0d0d0; padding: 6px 8px; border-radius: 3px; font-size: 12px; font-family: 'DM Mono', monospace; outline: none; }
+  .ann-popup input:focus { border-color: #4a7a9b; }
+  .ann-popup-btns { display: flex; gap: 6px; margin-top: 8px; }
+  .ann-popup-btn { flex: 1; padding: 7px; border-radius: 3px; font-size: 11px; cursor: pointer; font-family: 'DM Mono', monospace; border: 0.5px solid #2a2a2a; background: none; color: #666; transition: all 0.15s; }
+  .ann-popup-btn.confirm { border-color: #4a7a9b; color: #7ab8d8; }
+
+  .section-panel, .lighting-panel, .bg-panel { position: absolute; left: 58px; top: 50%; transform: translateY(-50%); background: rgba(10,10,10,0.96); border: 0.5px solid #1e1e1e; border-radius: 4px; padding: 12px; display: none; z-index: 20; backdrop-filter: blur(8px); }
+  .section-panel { width: 180px; } .lighting-panel { width: 150px; } .bg-panel { width: 140px; }
+  .section-panel.visible, .lighting-panel.visible, .bg-panel.visible { display: block; }
+  .panel-title { font-size: 10px; color: #333; font-family: 'DM Mono', monospace; letter-spacing: 1px; margin-bottom: 10px; }
+  .section-row { margin-bottom: 10px; }
+  .section-label { font-size: 10px; color: #444; font-family: 'DM Mono', monospace; margin-bottom: 5px; display: flex; justify-content: space-between; }
+  .section-label span { color: #666; }
+  input[type=range] { width: 100%; accent-color: #4a7a9b; cursor: pointer; }
+  .section-reset { width: 100%; margin-top: 6px; background: none; border: 0.5px solid #222; color: #444; padding: 6px; border-radius: 3px; font-size: 10px; cursor: pointer; font-family: 'DM Mono', monospace; transition: all 0.15s; }
+  .section-reset:hover { border-color: #3a3a3a; color: #888; }
+  .light-option, .bg-option { padding: 7px 10px; border-radius: 3px; margin-bottom: 4px; cursor: pointer; font-size: 11px; color: #555; font-family: 'DM Mono', monospace; border: 0.5px solid transparent; transition: all 0.15s; display: flex; align-items: center; gap: 8px; }
+  .light-option:hover, .bg-option:hover { color: #aaa; border-color: #2a2a2a; }
+  .light-option.active, .bg-option.active { color: #7ab8d8; border-color: #4a7a9b; background: rgba(74,122,155,0.08); }
+  .bg-swatch { width: 13px; height: 13px; border-radius: 2px; border: 0.5px solid #2a2a2a; flex-shrink: 0; }
+
+  .ann-label { position: absolute; background: rgba(12,12,12,0.9); border: 0.5px solid #4a7a9b; color: #7ab8d8; font-size: 10px; padding: 3px 7px; border-radius: 3px; pointer-events: none; font-family: 'DM Mono', monospace; transform: translate(-50%, -100%); margin-top: -6px; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- Gallery -->
+<div id="gallery-page">
+  <div class="site-header">
+    <div class="logo-area">
+      <!-- LOGO: Replace the src below with your logo URL. If no logo, remove the <img> tag. -->
+      <img class="site-logo" id="gallery-logo" src="https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/Logo_no_bg.png" alt="Logo" onerror="this.style.display='none'">
+      <div>
+        <div class="site-logo-text" id="site-title">3D Models</div>
+        <div class="site-subtitle" id="site-subtitle">photogrammetry archive</div>
+      </div>
+    </div>
+    <div class="model-count" id="model-count"></div>
+  </div>
+  <div class="gallery-grid" id="gallery-grid"></div>
+  <div class="empty-state" id="empty-state" style="display:none;"><div class="empty-title">No models in models.json</div></div>
+</div>
+
+<!-- Viewer -->
+<div id="viewer-page" style="display:none; flex-direction:column; height:100dvh; position:relative;">
+  <div class="viewer-header">
+    <button class="back-btn" onclick="showGallery()">← gallery</button>
+    <!-- LOGO in viewer header -->
+    <img class="viewer-logo" id="viewer-logo" src="https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/Logo_no_bg.png" alt="Logo" onerror="this.style.display='none'">
+    <div style="overflow:hidden; min-width:0;">
+      <div class="viewer-name" id="viewer-name">Model</div>
+      <div class="viewer-desc" id="viewer-desc"></div>
+    </div>
+    <div class="header-right">
+      <button class="share-btn" id="share-btn" onclick="copyShareLink()">copy link</button>
+      <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶</button>
+    </div>
+  </div>
+
+  <div id="canvas-container" style="flex:1; position:relative;">
+    <canvas id="viewer-canvas"></canvas>
+    <div class="pivot-flash" id="pivot-flash"></div>
+
+    <div class="toolbar">
+      <button class="tool-btn active" id="tool-orbit" data-tip="Orbit" onclick="setTool('orbit')">⊙</button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn" id="tool-measure" data-tip="Measure distance" onclick="setTool('measure')">📏</button>
+      <button class="tool-btn" id="tool-area" data-tip="Measure area" onclick="setTool('area')">⬡</button>
+      <button class="tool-btn" id="tool-annotate" data-tip="Add annotation" onclick="setTool('annotate')">📌</button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn" id="tool-section" data-tip="Section cut" onclick="togglePanel('section')">✂</button>
+      <button class="tool-btn" id="tool-lighting" data-tip="Lighting" onclick="togglePanel('lighting')">☀</button>
+      <button class="tool-btn" id="tool-bg" data-tip="Background" onclick="togglePanel('bg')">◐</button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn" id="tool-annotations-list" data-tip="Annotations" onclick="toggleAnnotationsPanel()">☰</button>
+    </div>
+
+    <div class="measure-display" id="measure-display"></div>
+
+    <div class="section-panel" id="section-panel">
+      <div class="panel-title">SECTION CUT</div>
+      <div class="section-row"><div class="section-label">X <span id="sx-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sx" oninput="updateSection()"></div>
+      <div class="section-row"><div class="section-label">Y <span id="sy-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sy" oninput="updateSection()"></div>
+      <div class="section-row"><div class="section-label">Z <span id="sz-val">off</span></div><input type="range" min="-100" max="100" value="100" id="sz" oninput="updateSection()"></div>
+      <button class="section-reset" onclick="resetSection()">reset</button>
+    </div>
+
+    <div class="lighting-panel" id="lighting-panel">
+      <div class="panel-title">LIGHTING</div>
+      <div class="light-option active" onclick="setLighting('studio')">studio</div>
+      <div class="light-option" onclick="setLighting('overhead')">overhead</div>
+      <div class="light-option" onclick="setLighting('dramatic')">dramatic</div>
+      <div class="light-option" onclick="setLighting('flat')">flat</div>
+      <div class="light-option" onclick="setLighting('night')">night</div>
+    </div>
+
+    <div class="bg-panel" id="bg-panel">
+      <div class="panel-title">BACKGROUND</div>
+      <div class="bg-option active" onclick="setBg('black')"><div class="bg-swatch" style="background:#080808"></div>black</div>
+      <div class="bg-option" onclick="setBg('dark')"><div class="bg-swatch" style="background:#1a1a2e"></div>dark blue</div>
+      <div class="bg-option" onclick="setBg('gray')"><div class="bg-swatch" style="background:#3a3a3a"></div>gray</div>
+      <div class="bg-option" onclick="setBg('white')"><div class="bg-swatch" style="background:#f0f0f0"></div>white</div>
+      <div class="bg-option" onclick="setBg('sky')"><div class="bg-swatch" style="background:#87CEEB"></div>sky</div>
+    </div>
+
+    <div class="annotations-panel" id="annotations-panel">
+      <div class="ann-header">ANNOTATIONS <button class="ann-close" onclick="toggleAnnotationsPanel()">✕</button></div>
+      <div class="ann-list" id="ann-list"><div class="ann-empty">No annotations yet.<br>Use the pin tool to add.</div></div>
+    </div>
+
+    <div class="ann-popup" id="ann-popup">
+      <input type="text" id="ann-input" placeholder="Enter note..." maxlength="120">
+      <div class="ann-popup-btns">
+        <button class="ann-popup-btn" onclick="cancelAnnotation()">cancel</button>
+        <button class="ann-popup-btn confirm" onclick="confirmAnnotation()">add</button>
+      </div>
+    </div>
+
+    <div class="bottom-controls">
+      <button class="ctrl-btn" onclick="resetCamera()">reset view</button>
+      <button class="ctrl-btn" id="wire-btn" onclick="toggleWireframe()">wireframe</button>
+      <button class="ctrl-btn" id="rotate-btn" onclick="toggleAutoRotate()">auto rotate</button>
+      <button class="ctrl-btn" onclick="clearMeasurements()">clear measures</button>
+    </div>
+
+    <div class="hints">1-finger · rotate<br>2-finger · pan<br>pinch · zoom<br>dbl-tap · set pivot</div>
+
+    <div class="loading-overlay" id="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-bar-wrap"><div class="loading-bar" id="loading-bar"></div></div>
+      <div class="loading-text" id="loading-text">loading model...</div>
+    </div>
+    <div class="error-overlay" id="error-overlay">
+      <div class="error-text">failed to load model</div>
+      <div class="error-sub" id="error-sub"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let galleryData = [], currentModel = null, activeTool = 'orbit';
+let wireframeOn = false, autoRotate = false;
+let scene, camera, renderer, loadedObject, animId;
+let sph = { theta: 0.5, phi: 1.1, radius: 5 };
+let tgt = new THREE.Vector3();
+let mouse = { down: false, right: false, x: 0, y: 0, startX: 0, startY: 0 };
+let defaultRadius = 5;
+let modelBounds = { min: new THREE.Vector3(), max: new THREE.Vector3(), size: new THREE.Vector3() };
+let measurePoints = [], measureLines = [], measureLabels = [], areaPoints = [];
+let annotations = [], pendingAnnotationPos = null, annMarkers = [];
+let ambLight, dirLight1, dirLight2;
+let sectionActive = [false, false, false];
+let activeClipPlanes = [];
+
+// Active clipping planes for section-aware raycasting
+let clipX = Infinity, clipY = Infinity, clipZ = Infinity;
+
+const lightingPresets = {
+  studio:   { ambient: 0.6, d1i: 1.2, d1p:[5,10,7],   d2i:0.3,  d2p:[-5,-3,-5] },
+  overhead: { ambient: 0.3, d1i: 2.0, d1p:[0,10,0],   d2i:0.1,  d2p:[0,-5,0]   },
+  dramatic: { ambient: 0.1, d1i: 2.5, d1p:[8,5,2],    d2i:0.05, d2p:[-8,-5,-2] },
+  flat:     { ambient: 1.5, d1i: 0.0, d1p:[0,1,0],    d2i:0.0,  d2p:[0,1,0]    },
+  night:    { ambient: 0.05,d1i: 0.8, d1p:[-3,2,5],   d2i:0.2,  d2p:[3,-2,-5]  }
+};
+const bgColors = { black:0x080808, dark:0x0d0d1a, gray:0x3a3a3a, white:0xf0f0f0, sky:0x87CEEB };
+
+// ── Logo ───────────────────────────────────────────────────────────────────
+const LOGO_URL = 'https://pub-92103691a7594fd5ad9ccdb6cc2fef7f.r2.dev/Logo_no_bg.png';
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  document.getElementById('gallery-logo').src = LOGO_URL;
+  document.getElementById('viewer-logo').src = LOGO_URL;
+  try {
+    const res = await fetch('models.json');
+    const data = await res.json();
+    if (data.title) { document.getElementById('site-title').textContent = data.title; document.title = data.title; }
+    if (data.subtitle) document.getElementById('site-subtitle').textContent = data.subtitle;
+    if (data.logo) {
+      document.getElementById('gallery-logo').src = data.logo;
+      document.getElementById('viewer-logo').src = data.logo;
+    }
+    galleryData = data.models || [];
+  } catch(e) { galleryData = []; }
+  renderGallery();
+  const id = new URLSearchParams(window.location.search).get('model');
+  if (id) { const m = galleryData.find(m => m.id === id); if (m) openModel(m, false); }
+}
+
+// ── Gallery ────────────────────────────────────────────────────────────────
+function renderGallery() {
+  const grid = document.getElementById('gallery-grid');
+  const empty = document.getElementById('empty-state');
+  document.getElementById('model-count').textContent = galleryData.length ? galleryData.length + ' models' : '';
+  if (!galleryData.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  grid.innerHTML = galleryData.map(m => `
+    <div class="model-card" onclick='openModel(${JSON.stringify(m).replace(/'/g,"&#39;")}, true)'>
+      <div class="card-thumb">
+        ${m.thumbnail ? `<img src="${m.thumbnail}" alt="${m.name}" loading="lazy" onerror="this.style.display='none'">` : ''}
+        <div class="thumb-inner"><div class="thumb-icon">⬡</div><div class="thumb-tag">GLB</div></div>
+        <div class="card-overlay"><div class="overlay-btn">open viewer</div></div>
+      </div>
+      <div class="card-info">
+        <div class="card-name">${m.name}</div>
+        <div class="card-desc">${m.description || '&nbsp;'}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Open / close model ─────────────────────────────────────────────────────
+function openModel(model, pushState) {
+  currentModel = model;
+  document.getElementById('viewer-name').textContent = model.name;
+  document.getElementById('viewer-desc').textContent = model.description || '';
+  document.getElementById('gallery-page').style.display = 'none';
+  document.getElementById('viewer-page').style.display = 'flex';
+  document.getElementById('loading-overlay').style.display = 'flex';
+  document.getElementById('error-overlay').style.display = 'none';
+  document.getElementById('loading-bar').style.width = '0%';
+  document.getElementById('loading-text').textContent = 'loading model...';
+  resetToolState();
+  if (pushState) { const u = new URL(window.location); u.searchParams.set('model', model.id); history.pushState({}, '', u); }
+  initThree();
+  fetchAndLoadGLB(model.url);
+}
+
+function showGallery() {
+  if (animId) cancelAnimationFrame(animId);
+  if (renderer) { renderer.dispose(); renderer = null; }
+  loadedObject = null;
+  document.getElementById('viewer-page').style.display = 'none';
+  document.getElementById('gallery-page').style.display = 'block';
+  const u = new URL(window.location); u.searchParams.delete('model'); history.pushState({}, '', u);
+}
+
+function resetToolState() {
+  activeTool = 'orbit'; wireframeOn = false; autoRotate = false;
+  measurePoints = []; measureLines = []; measureLabels = []; areaPoints = [];
+  annotations = []; annMarkers = []; pendingAnnotationPos = null;
+  clipX = Infinity; clipY = Infinity; clipZ = Infinity;
+  document.getElementById('measure-display').style.display = 'none';
+  document.getElementById('rotate-btn').classList.remove('active');
+  document.getElementById('wire-btn').classList.remove('active');
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tool-orbit').classList.add('active');
+  document.querySelectorAll('.annotations-panel,.section-panel,.lighting-panel,.bg-panel').forEach(p => p.classList.remove('visible'));
+  document.getElementById('ann-popup').style.display = 'none';
+  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 100);
+  updateSectionLabels(); renderAnnotationsList();
+}
+
+// ── Three.js ───────────────────────────────────────────────────────────────
+function initThree() {
+  if (animId) cancelAnimationFrame(animId);
+  if (renderer) renderer.dispose();
+  const container = document.getElementById('canvas-container');
+  const canvas = document.getElementById('viewer-canvas');
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(bgColors.black);
+  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.001, 100000);
+
+  // Use WebGL1 fallback for broader mobile support (Pixel 7 / older Android)
+  let ctx;
+  try { ctx = canvas.getContext('webgl2') || canvas.getContext('webgl'); } catch(e) {}
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, context: ctx, powerPreference: 'high-performance' });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.localClippingEnabled = true;
+  renderer.physicallyCorrectLights = true;
+
+  ambLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambLight);
+  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2); dirLight1.position.set(5,10,7); scene.add(dirLight1);
+  dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3); dirLight2.position.set(-5,-3,-5); scene.add(dirLight2);
+
+  setupControls(canvas);
+  window.onresize = () => {
+    if (!renderer) return;
+    const w = container.clientWidth, h = container.clientHeight;
+    camera.aspect = w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);
+  };
+  function loop() {
+    animId = requestAnimationFrame(loop);
+    if (autoRotate) { sph.theta += 0.004; updateCam(); }
+    updateAnnotationLabels();
+    if (renderer && scene && camera) renderer.render(scene, camera);
+  }
+  loop();
+}
+
+function updateCam() {
+  const x = sph.radius * Math.sin(sph.phi) * Math.sin(sph.theta);
+  const y = sph.radius * Math.cos(sph.phi);
+  const z = sph.radius * Math.sin(sph.phi) * Math.cos(sph.theta);
+  camera.position.set(tgt.x+x, tgt.y+y, tgt.z+z);
+  camera.lookAt(tgt);
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+function setupControls(canvas) {
+  // Mouse
+  canvas.addEventListener('mousedown', e => {
+    mouse.down = true; mouse.right = e.button === 2;
+    mouse.x = e.clientX; mouse.y = e.clientY;
+    mouse.startX = e.clientX; mouse.startY = e.clientY;
+  });
+  window.addEventListener('mouseup', e => {
+    const moved = Math.abs(e.clientX - mouse.startX) < 4 && Math.abs(e.clientY - mouse.startY) < 4;
+    if (mouse.down && moved) handleCanvasClick(e);
+    mouse.down = false;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!mouse.down) return;
+    const dx = e.clientX - mouse.x, dy = e.clientY - mouse.y;
+    mouse.x = e.clientX; mouse.y = e.clientY;
+    if (mouse.right) { doPan(dx, dy); }
+    else { doOrbit(dx, dy); }
+    updateCam();
+  });
+  canvas.addEventListener('wheel', e => {
+    sph.radius = Math.max(0.001, sph.radius*(1+e.deltaY*0.001));
+    updateCam(); e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Double-click to set pivot
+  canvas.addEventListener('dblclick', e => {
+    if (activeTool === 'area' && areaPoints.length >= 3) { finishArea(); return; }
+    if (activeTool !== 'orbit') return;
+    const hit = getRaycastPoint(e);
+    if (hit) setPivot(hit.point, e.clientX, e.clientY);
+  });
+
+  // Touch
+  let touches = {}, lastPinch = 0, lastMidX = 0, lastMidY = 0;
+  let touchStartTime = 0, lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    touches = {};
+    Array.from(e.touches).forEach(t => touches[t.identifier] = { x: t.clientX, y: t.clientY });
+
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX-e.touches[1].clientX;
+      const dy = e.touches[0].clientY-e.touches[1].clientY;
+      lastPinch = Math.sqrt(dx*dx+dy*dy);
+      lastMidX = (e.touches[0].clientX+e.touches[1].clientX)/2;
+      lastMidY = (e.touches[0].clientY+e.touches[1].clientY)/2;
+    }
+
+    // Double-tap detection for pivot
+    if (e.touches.length === 1) {
+      const now = Date.now();
+      const t = e.touches[0];
+      const dist = Math.sqrt((t.clientX-lastTapX)**2+(t.clientY-lastTapY)**2);
+      if (now - lastTapTime < 300 && dist < 30) {
+        // double-tap — set pivot
+        if (activeTool === 'orbit') {
+          const fakeEvt = { clientX: t.clientX, clientY: t.clientY };
+          const hit = getRaycastPoint(fakeEvt);
+          if (hit) setPivot(hit.point, t.clientX, t.clientY);
+        }
+      }
+      lastTapTime = now; lastTapX = t.clientX; lastTapY = t.clientY;
+      touchStartTime = now;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const t = e.touches[0], p = touches[t.identifier] || { x: t.clientX, y: t.clientY };
+      const dx = t.clientX-p.x, dy = t.clientY-p.y;
+      doOrbit(dx, dy);
+      updateCam(); touches[t.identifier] = { x: t.clientX, y: t.clientY };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX-e.touches[1].clientX;
+      const dy = e.touches[0].clientY-e.touches[1].clientY;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      const midX = (e.touches[0].clientX+e.touches[1].clientX)/2;
+      const midY = (e.touches[0].clientY+e.touches[1].clientY)/2;
+      // Pinch = zoom
+      sph.radius = Math.max(0.001, sph.radius*(1+(lastPinch-dist)*0.005));
+      // 2-finger drag = pan
+      doPan(midX-lastMidX, midY-lastMidY);
+      lastPinch = dist; lastMidX = midX; lastMidY = midY; updateCam();
+      Array.from(e.touches).forEach(t => touches[t.identifier]={x:t.clientX,y:t.clientY});
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    // Single tap for tool clicks
+    if (e.changedTouches.length === 1 && e.touches.length === 0) {
+      const elapsed = Date.now() - touchStartTime;
+      const t = e.changedTouches[0];
+      const moved = Math.abs(t.clientX - (touches[t.identifier]?.x||t.clientX)) < 8
+                 && Math.abs(t.clientY - (touches[t.identifier]?.y||t.clientY)) < 8;
+      if (elapsed < 300 && moved && activeTool !== 'orbit') {
+        handleCanvasClick({ clientX: t.clientX, clientY: t.clientY });
+      }
+    }
+  }, { passive: false });
+}
+
+function doOrbit(dx, dy) {
+  sph.theta -= dx * 0.005;
+  sph.phi = Math.max(0.05, Math.min(Math.PI-0.05, sph.phi - dy*0.005));
+}
+
+function doPan(dx, dy) {
+  const s = sph.radius * 0.0012;
+  const r = new THREE.Vector3(); camera.getWorldDirection(r); r.cross(camera.up).normalize();
+  tgt.x -= r.x*dx*s; tgt.y -= r.y*dx*s; tgt.z -= r.z*dx*s;
+  tgt.x += camera.up.x*dy*s; tgt.y += camera.up.y*dy*s; tgt.z += camera.up.z*dy*s;
+}
+
+function setPivot(point, screenX, screenY) {
+  tgt.copy(point);
+  // Recompute sph so camera doesn't jump
+  const offset = camera.position.clone().sub(tgt);
+  sph.radius = offset.length();
+  sph.phi = Math.acos(Math.max(-1, Math.min(1, offset.y / sph.radius)));
+  sph.theta = Math.atan2(offset.x, offset.z);
+  updateCam();
+  // Show flash
+  const flash = document.getElementById('pivot-flash');
+  flash.style.left = screenX + 'px';
+  flash.style.top = screenY + 'px';
+  flash.style.display = 'block';
+  flash.style.animation = 'none';
+  requestAnimationFrame(() => { flash.style.animation = 'pivotFade 0.6s ease-out forwards'; });
+  setTimeout(() => flash.style.display = 'none', 650);
+}
+
+// ── Raycasting (section-aware) ─────────────────────────────────────────────
+function getRaycastPoint(e) {
+  if (!loadedObject || !renderer) return null;
+  const canvas = document.getElementById('viewer-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(loadedObject, true);
+  // Filter hits that are inside the clipped (visible) region
+  for (const hit of hits) {
+    const p = hit.point;
+    if (p.x <= clipX && p.y <= clipY && p.z <= clipZ) return hit;
+  }
+  return null;
+}
+
+function handleCanvasClick(e) {
+  if (activeTool === 'orbit') return;
+  const hit = getRaycastPoint(e);
+  if (!hit) return;
+  if (activeTool === 'measure') handleMeasureClick(hit.point);
+  else if (activeTool === 'area') handleAreaClick(hit.point);
+  else if (activeTool === 'annotate') handleAnnotateClick(hit.point, e);
+}
+
+// ── Measure ────────────────────────────────────────────────────────────────
+function handleMeasureClick(point) {
+  measurePoints.push(point.clone());
+  addPointMarker(point, 0x7ab8d8);
+  if (measurePoints.length === 2) {
+    const dist = measurePoints[0].distanceTo(measurePoints[1]);
+    drawLine(measurePoints[0], measurePoints[1], 0x7ab8d8);
+    showMeasureDisplay('distance: ' + dist.toFixed(3) + ' m');
+    measurePoints = [];
+  } else { showMeasureDisplay('click second point...'); }
+}
+
+// ── Area ───────────────────────────────────────────────────────────────────
+function handleAreaClick(point) {
+  areaPoints.push(point.clone());
+  addPointMarker(point, 0x7ad88a);
+  if (areaPoints.length > 1) drawLine(areaPoints[areaPoints.length-2], point, 0x7ad88a);
+  if (areaPoints.length >= 3) showMeasureDisplay('area: ' + calcPolygonArea(areaPoints).toFixed(3) + ' m² · dbl-click/tap to finish');
+  else showMeasureDisplay(areaPoints.length + ' point(s) · add more or dbl-click to finish');
+}
+
+function finishArea() {
+  drawLine(areaPoints[areaPoints.length-1], areaPoints[0], 0x7ad88a);
+  showMeasureDisplay('area: ' + calcPolygonArea(areaPoints).toFixed(3) + ' m²');
+  areaPoints = [];
+}
+
+document.getElementById('viewer-canvas').addEventListener('dblclick', e => {
+  if (activeTool === 'area' && areaPoints.length >= 3) finishArea();
+});
+
+function calcPolygonArea(pts) {
+  if (pts.length < 3) return 0;
+  const normal = new THREE.Vector3();
+  for (let i = 1; i < pts.length-1; i++) {
+    normal.add(pts[i].clone().sub(pts[0]).cross(pts[i+1].clone().sub(pts[0])));
+  }
+  return normal.length() / 2;
+}
+
+// ── Annotations ────────────────────────────────────────────────────────────
+function handleAnnotateClick(point, e) {
+  pendingAnnotationPos = point.clone();
+  const popup = document.getElementById('ann-popup');
+  popup.style.display = 'block';
+  const container = document.getElementById('canvas-container');
+  const cr = container.getBoundingClientRect();
+  const px = Math.min(e.clientX - cr.left, cr.width - 220);
+  const py = Math.max(e.clientY - cr.top - 80, 60);
+  popup.style.left = px + 'px'; popup.style.top = py + 'px';
+  document.getElementById('ann-input').value = '';
+  setTimeout(() => document.getElementById('ann-input').focus(), 50);
+}
+
+document.getElementById('ann-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmAnnotation();
+  if (e.key === 'Escape') cancelAnnotation();
+});
+
+function confirmAnnotation() {
+  const text = document.getElementById('ann-input').value.trim();
+  if (!text || !pendingAnnotationPos) { cancelAnnotation(); return; }
+  const ann = { id: Date.now(), pos: pendingAnnotationPos.clone(), text, num: annotations.length+1 };
+  annotations.push(ann); addAnnotationMarker(ann); renderAnnotationsList();
+  document.getElementById('ann-popup').style.display = 'none'; pendingAnnotationPos = null;
+}
+
+function cancelAnnotation() {
+  document.getElementById('ann-popup').style.display = 'none'; pendingAnnotationPos = null;
+}
+
+function addAnnotationMarker(ann) {
+  const r = modelBounds.size.length() * 0.004;
+  const geo = new THREE.SphereGeometry(r, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x4a7a9b });
+  const sphere = new THREE.Mesh(geo, mat); sphere.position.copy(ann.pos);
+  scene.add(sphere);
+  const label = document.createElement('div');
+  label.className = 'ann-label'; label.textContent = ann.num + ': ' + ann.text;
+  document.getElementById('canvas-container').appendChild(label);
+  annMarkers.push({ ann, sphere, label });
+}
+
+function updateAnnotationLabels() {
+  if (!camera || !renderer) return;
+  const canvas = document.getElementById('viewer-canvas');
+  annMarkers.forEach(({ sphere, label }) => {
+    const pos = sphere.position.clone().project(camera);
+    if (pos.z > 1) { label.style.display = 'none'; return; }
+    label.style.display = 'block';
+    label.style.left = ((pos.x*0.5+0.5)*canvas.clientWidth) + 'px';
+    label.style.top = ((-pos.y*0.5+0.5)*canvas.clientHeight) + 'px';
+  });
+}
+
+function removeAnnotation(id) {
+  const idx = annMarkers.findIndex(m => m.ann.id === id);
+  if (idx !== -1) { scene.remove(annMarkers[idx].sphere); annMarkers[idx].label.remove(); annMarkers.splice(idx,1); }
+  annotations = annotations.filter(a => a.id !== id); renderAnnotationsList();
+}
+
+function renderAnnotationsList() {
+  const list = document.getElementById('ann-list');
+  if (!annotations.length) { list.innerHTML = '<div class="ann-empty">No annotations yet.<br>Use the pin tool to add.</div>'; return; }
+  list.innerHTML = annotations.map(a => `
+    <div class="ann-item" onclick="focusAnnotation(${a.id})">
+      <div class="ann-num">#${a.num}<button class="ann-delete" onclick="event.stopPropagation();removeAnnotation(${a.id})">✕</button></div>
+      <div class="ann-text">${a.text}</div>
+    </div>`).join('');
+}
+
+function focusAnnotation(id) {
+  const m = annMarkers.find(m => m.ann.id === id);
+  if (!m) return;
+  tgt.copy(m.sphere.position); sph.radius = defaultRadius*0.3; updateCam();
+}
+
+// ── Drawing helpers (smaller markers) ─────────────────────────────────────
+function addPointMarker(pos, color) {
+  // Marker size: 0.0015 of model diagonal (was 0.004 — now ~3x smaller)
+  const r = modelBounds.size.length() * 0.0015;
+  const geo = new THREE.SphereGeometry(r, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+  const m = new THREE.Mesh(geo, mat); m.position.copy(pos);
+  scene.add(m); measureLines.push(m);
+}
+
+function drawLine(a, b, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([a,b]);
+  const mat = new THREE.LineBasicMaterial({ color, depthTest: false });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line); measureLines.push(line);
+}
+
+function showMeasureDisplay(text) {
+  const el = document.getElementById('measure-display');
+  el.textContent = text; el.style.display = 'block';
+}
+
+function clearMeasurements() {
+  measureLines.forEach(o => scene.remove(o));
+  measureLines = []; measurePoints = []; areaPoints = [];
+  document.getElementById('measure-display').style.display = 'none';
+}
+
+// ── Section cut ────────────────────────────────────────────────────────────
+function updateSection() {
+  if (!loadedObject) return;
+  const sx = parseInt(document.getElementById('sx').value)/100;
+  const sy = parseInt(document.getElementById('sy').value)/100;
+  const sz = parseInt(document.getElementById('sz').value)/100;
+  updateSectionLabels();
+  const b = modelBounds;
+  clipX = sx >= 1 ? Infinity : b.min.x + (b.max.x-b.min.x)*((sx+1)/2);
+  clipY = sy >= 1 ? Infinity : b.min.y + (b.max.y-b.min.y)*((sy+1)/2);
+  clipZ = sz >= 1 ? Infinity : b.min.z + (b.max.z-b.min.z)*((sz+1)/2);
+
+  const planes = [];
+  if (sx < 1) planes.push(new THREE.Plane(new THREE.Vector3(-1,0,0), clipX));
+  if (sy < 1) planes.push(new THREE.Plane(new THREE.Vector3(0,-1,0), clipY));
+  if (sz < 1) planes.push(new THREE.Plane(new THREE.Vector3(0,0,-1), clipZ));
+
+  loadedObject.traverse(c => {
+    if (!c.isMesh) return;
+    (Array.isArray(c.material)?c.material:[c.material]).forEach(m => { m.clippingPlanes = planes; m.needsUpdate = true; });
+  });
+}
+
+function updateSectionLabels() {
+  ['sx','sy','sz'].forEach(id => {
+    const v = parseInt(document.getElementById(id).value);
+    document.getElementById(id+'-val').textContent = v >= 100 ? 'off' : v+'%';
+  });
+}
+
+function resetSection() {
+  ['sx','sy','sz'].forEach(id => document.getElementById(id).value = 100);
+  clipX = Infinity; clipY = Infinity; clipZ = Infinity;
+  if (loadedObject) loadedObject.traverse(c => {
+    if (!c.isMesh) return;
+    (Array.isArray(c.material)?c.material:[c.material]).forEach(m => { m.clippingPlanes = []; m.needsUpdate = true; });
+  });
+  updateSectionLabels();
+}
+
+// ── Lighting ───────────────────────────────────────────────────────────────
+function setLighting(preset) {
+  const p = lightingPresets[preset]; if (!p||!ambLight) return;
+  ambLight.intensity = p.ambient;
+  dirLight1.intensity = p.d1i; dirLight1.position.set(...p.d1p);
+  dirLight2.intensity = p.d2i; dirLight2.position.set(...p.d2p);
+  document.querySelectorAll('.light-option').forEach(el => el.classList.toggle('active', el.textContent.trim()===preset));
+}
+
+// ── Background ─────────────────────────────────────────────────────────────
+function setBg(name) {
+  if (scene) scene.background = new THREE.Color(bgColors[name]);
+  document.querySelectorAll('.bg-option').forEach(el => el.classList.toggle('active', el.getAttribute('onclick')?.includes("'"+name+"'")));
+}
+
+// ── Tools & panels ─────────────────────────────────────────────────────────
+function setTool(tool) {
+  activeTool = tool;
+  document.querySelectorAll('.tool-btn[id^="tool-"]').forEach(b => b.classList.remove('active'));
+  document.getElementById('tool-'+tool)?.classList.add('active');
+  document.getElementById('viewer-canvas').style.cursor = tool==='orbit'?'grab':'crosshair';
+  ['section-panel','lighting-panel','bg-panel'].forEach(id => document.getElementById(id).classList.remove('visible'));
+  if (tool==='measure') showMeasureDisplay('click first point...');
+  else if (tool==='area') showMeasureDisplay('click to add points · dbl-click to finish');
+  else if (tool==='annotate') showMeasureDisplay('click on model to pin a note');
+  else document.getElementById('measure-display').style.display='none';
+}
+
+function togglePanel(name) {
+  const ids={section:'section-panel',lighting:'lighting-panel',bg:'bg-panel'};
+  const panel = document.getElementById(ids[name]);
+  const was = panel.classList.contains('visible');
+  ['section-panel','lighting-panel','bg-panel'].forEach(id=>document.getElementById(id).classList.remove('visible'));
+  if (!was) panel.classList.add('visible');
+}
+
+function toggleAnnotationsPanel() { document.getElementById('annotations-panel').classList.toggle('visible'); }
+
+function resetCamera() { sph.radius=defaultRadius; sph.theta=0.5; sph.phi=1.1; tgt.set(0,0,0); updateCam(); }
+
+function toggleWireframe() {
+  wireframeOn=!wireframeOn;
+  document.getElementById('wire-btn').classList.toggle('active',wireframeOn);
+  if (!loadedObject) return;
+  loadedObject.traverse(c=>{if(!c.isMesh)return;(Array.isArray(c.material)?c.material:[c.material]).forEach(m=>m.wireframe=wireframeOn);});
+}
+
+function toggleAutoRotate() { autoRotate=!autoRotate; document.getElementById('rotate-btn').classList.toggle('active',autoRotate); }
+function toggleFullscreen() { if(!document.fullscreenElement) document.getElementById('viewer-page').requestFullscreen?.(); else document.exitFullscreen?.(); }
+
+function copyShareLink() {
+  const btn=document.getElementById('share-btn');
+  navigator.clipboard.writeText(window.location.href).then(()=>{
+    btn.textContent='copied!'; btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent='copy link';btn.classList.remove('copied');},2000);
+  });
+}
+
+window.addEventListener('popstate',()=>{
+  const id=new URLSearchParams(window.location.search).get('model');
+  if(id){const m=galleryData.find(m=>m.id===id);if(m)openModel(m,false);}else showGallery();
+});
+
+// ── GLB load & parse ────────────────────────────────────────────────────────
+async function fetchAndLoadGLB(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const total = parseInt(res.headers.get('content-length')||'0');
+    const reader = res.body.getReader(); const chunks=[]; let received=0;
+    while(true){
+      const {done,value}=await reader.read(); if(done)break;
+      chunks.push(value); received+=value.length;
+      if(total){const pct=Math.round(received/total*100);document.getElementById('loading-bar').style.width=pct+'%';document.getElementById('loading-text').textContent='loading... '+pct+'%';}
+    }
+    parseGLB(await new Blob(chunks).arrayBuffer());
+  } catch(e) {
+    document.getElementById('loading-overlay').style.display='none';
+    document.getElementById('error-sub').textContent=e.message;
+    document.getElementById('error-overlay').style.display='flex';
+  }
+}
+
+function parseGLB(buf) {
+  try {
+    const dv=new DataView(buf);
+    if(dv.getUint32(0,true)!==0x46546C67) throw new Error('Not a valid GLB');
+    const jsonLen=dv.getUint32(12,true);
+    const json=JSON.parse(new TextDecoder().decode(new Uint8Array(buf,20,jsonLen)));
+    const binStart=20+jsonLen+8, binLen=dv.getUint32(20+jsonLen,true);
+    buildScene(json,new Uint8Array(buf,binStart,binLen));
+  } catch(e) {
+    document.getElementById('loading-overlay').style.display='none';
+    document.getElementById('error-sub').textContent=e.message;
+    document.getElementById('error-overlay').style.display='flex';
+  }
+}
+
+function buildScene(json,bin) {
+  const bufViews=json.bufferViews||[],accessors=json.accessors||[],mats=json.materials||[];
+  const textures=json.textures||[],images=json.images||[],meshes=json.meshes||[],nodes=json.nodes||[];
+  const typeComps={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16};
+  const compArrays={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
+
+  function getAcc(idx){
+    const a=accessors[idx],bv=bufViews[a.bufferView];
+    return new compArrays[a.componentType](bin.buffer,bin.byteOffset+(bv.byteOffset||0)+(a.byteOffset||0),a.count*typeComps[a.type]);
+  }
+  const texCache={};
+  function getTex(i){
+    if(texCache[i]) return texCache[i];
+    const src=textures[i]?.source; if(src===undefined) return null;
+    const img=images[src]; if(!img||img.bufferView===undefined) return null;
+    const bv=bufViews[img.bufferView];
+    const data=new Uint8Array(bin.buffer,bin.byteOffset+(bv.byteOffset||0),bv.byteLength);
+    const tex=new THREE.TextureLoader().load(URL.createObjectURL(new Blob([data],{type:img.mimeType||'image/jpeg'})));
+    tex.encoding=THREE.sRGBEncoding; tex.flipY=false; return texCache[i]=tex;
+  }
+  const matCache=mats.map(mat=>{
+    const m=new THREE.MeshStandardMaterial({side:mat.doubleSided?THREE.DoubleSide:THREE.FrontSide});
+    const pbr=mat.pbrMetallicRoughness||{},bc=pbr.baseColorFactor||[1,1,1,1];
+    m.color.setRGB(bc[0],bc[1],bc[2]); m.opacity=bc[3]; if(bc[3]<1) m.transparent=true;
+    m.metalness=pbr.metallicFactor??1; m.roughness=pbr.roughnessFactor??1;
+    if(pbr.baseColorTexture) m.map=getTex(pbr.baseColorTexture.index);
+    if(pbr.metallicRoughnessTexture) m.metalnessMap=m.roughnessMap=getTex(pbr.metallicRoughnessTexture.index);
+    if(mat.normalTexture) m.normalMap=getTex(mat.normalTexture.index);
+    if(mat.occlusionTexture) m.aoMap=getTex(mat.occlusionTexture.index);
+    if(mat.emissiveTexture){m.emissiveMap=getTex(mat.emissiveTexture.index);m.emissive.setRGB(1,1,1);}
+    if(mat.emissiveFactor) m.emissive.setRGB(...mat.emissiveFactor);
+    if(mat.alphaMode==='BLEND'){m.transparent=true;m.depthWrite=false;}
+    if(mat.alphaMode==='MASK') m.alphaTest=mat.alphaCutoff??0.5;
+    return m;
+  });
+
+  function buildMesh(idx){
+    const g=new THREE.Group();
+    meshes[idx].primitives.forEach(p=>{
+      const geo=new THREE.BufferGeometry(),a=p.attributes;
+      if(a.POSITION!==undefined) geo.setAttribute('position',new THREE.BufferAttribute(getAcc(a.POSITION),3));
+      if(a.NORMAL!==undefined) geo.setAttribute('normal',new THREE.BufferAttribute(getAcc(a.NORMAL),3));
+      if(a.TEXCOORD_0!==undefined) geo.setAttribute('uv',new THREE.BufferAttribute(getAcc(a.TEXCOORD_0),2));
+      if(a.TEXCOORD_1!==undefined) geo.setAttribute('uv2',new THREE.BufferAttribute(getAcc(a.TEXCOORD_1),2));
+      if(p.indices!==undefined) geo.setIndex(new THREE.BufferAttribute(getAcc(p.indices),1));
+      if(!a.NORMAL) geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo,p.material!==undefined?matCache[p.material]:new THREE.MeshStandardMaterial({color:0x999999})));
+    });
+    return g;
+  }
+
+  function buildNode(idx){
+    const n=nodes[idx],obj=new THREE.Group(); obj.name=n.name||'';
+    if(n.matrix){new THREE.Matrix4().fromArray(n.matrix).decompose(obj.position,obj.quaternion,obj.scale);}
+    else{if(n.translation)obj.position.fromArray(n.translation);if(n.rotation)obj.quaternion.fromArray(n.rotation);if(n.scale)obj.scale.fromArray(n.scale);}
+    if(n.mesh!==undefined) obj.add(buildMesh(n.mesh));
+    (n.children||[]).forEach(c=>obj.add(buildNode(c)));
+    return obj;
+  }
+
+  const root=new THREE.Group();
+  (json.scenes[json.scene||0].nodes||[]).forEach(n=>root.add(buildNode(n)));
+  const box=new THREE.Box3().setFromObject(root);
+  const center=box.getCenter(new THREE.Vector3());
+  root.position.sub(center);
+  box.getSize(modelBounds.size);
+  modelBounds.min.copy(box.min).sub(center);
+  modelBounds.max.copy(box.max).sub(center);
+  scene.add(root); loadedObject=root;
+  defaultRadius=modelBounds.size.length()*1.8;
+  sph.radius=defaultRadius; sph.theta=0.5; sph.phi=1.1; tgt.set(0,0,0); updateCam();
+  document.getElementById('loading-overlay').style.display='none';
+}
+
+init();
+</script>
+</body>
+</html>
